@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -9,22 +10,40 @@ import joblib
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
+BASE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = BASE_DIR.parent
+load_dotenv(PROJECT_ROOT / ".env")
+
 # =====================================================
 # Flask App Initialization
 # =====================================================
 app = Flask(__name__)
-CORS(app)
+
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").strip()
+if allowed_origins == "*":
+    cors_origins = "*"
+else:
+    cors_origins = [
+        origin.strip()
+        for origin in allowed_origins.split(",")
+        if origin.strip()
+    ]
+
+CORS(app, resources={r"/*": {"origins": cors_origins}})
 
 # =====================================================
 # Database Configuration
 # =====================================================
-load_dotenv()
-
 DB_URI = (
     os.getenv("DATABASE_URL")
 )
 
-engine = create_engine(DB_URI)
+if not DB_URI:
+    raise RuntimeError(
+        "DATABASE_URL is not set. Configure it in Render environment variables."
+    )
+
+engine = create_engine(DB_URI, pool_pre_ping=True)
 
 def ensure_tables():
     """Create history tables if they do not exist."""
@@ -58,9 +77,9 @@ def fetch_materials():
 # =====================================================
 # Load Trained ML Models
 # =====================================================
-rf_cost = joblib.load("rf_cost_model.pkl")
-xgb_co2 = joblib.load("xgb_co2_model.pkl")
-scaler = joblib.load("scaler.pkl")
+rf_cost = joblib.load(BASE_DIR / "rf_cost_model.pkl")
+xgb_co2 = joblib.load(BASE_DIR / "xgb_co2_model.pkl")
+scaler = joblib.load(BASE_DIR / "scaler.pkl")
 
 # =====================================================
 # Category Filtering Rules (Single Category)
@@ -366,4 +385,8 @@ def clear_history():
 # =====================================================
 if __name__ == "__main__":
     print("Starting EcoPackAI backend...")
-    app.run(debug=True)
+    app.run(
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "5000")),
+        debug=os.getenv("FLASK_DEBUG", "false").lower() == "true"
+    )
